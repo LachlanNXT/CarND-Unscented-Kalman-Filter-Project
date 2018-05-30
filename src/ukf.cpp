@@ -20,14 +20,18 @@ UKF::UKF() {
 
   // initial state vector
   x_ = VectorXd(5);
+  x_.fill(0.0);
 
   // initial covariance matrix
   P_ = MatrixXd(5, 5);
+  P_.setIdentity();
 
   // Process noise standard deviation longitudinal acceleration in m/s^2
+  // DEFAULT VALUE VERY WRONG
   std_a_ = 30;
 
   // Process noise standard deviation yaw acceleration in rad/s^2
+  // DEFAULT VALUE VERY WRONG
   std_yawdd_ = 30;
   
   //DO NOT MODIFY measurement noise values below these are provided by the sensor manufacturer.
@@ -46,14 +50,22 @@ UKF::UKF() {
   // Radar measurement noise standard deviation radius change in m/s
   std_radrd_ = 0.3;
   //DO NOT MODIFY measurement noise values above these are provided by the sensor manufacturer.
-  
-  /**
-  TODO:
 
-  Complete the initialization. See ukf.h for other member properties.
+  // State, Augmented state, spreading factor
+  n_x_ = 5;
+  n_aug_ = 7;
+  n_sig_ = 2*n_aug_ + 1;
+  lambda_ = 3 - n_aug_;
 
-  Hint: one or more values initialized above might be wildly off...
-  */
+  ///* predicted sigma points matrix
+  Xsig_pred_ = MatrixXd(n_aug_,n_sig_);
+
+  ///* Weights of sigma points
+  VectorXd weights_ = VectorXd(n_sig_);
+
+  ///* time when the state is true, in us
+  time_us_ = 0.0;
+
 }
 
 UKF::~UKF() {}
@@ -63,12 +75,61 @@ UKF::~UKF() {}
  * either radar or laser.
  */
 void UKF::ProcessMeasurement(MeasurementPackage meas_package) {
-  /**
-  TODO:
+  // Make sure you switch between lidar and radar measurements.
+  if (!is_initialized_) {
+    /**
+      * Initialize the state x_ with the first measurement.
+      * Create the covariance matrix.
+      * Remember: you'll need to convert radar from polar to cartesian coordinates.
+    */
+    // first measurement
+    time_us_ = meas_package.timestamp_;
 
-  Complete this function! Make sure you switch between lidar and radar
-  measurements.
-  */
+    if (meas_package.sensor_type_ == MeasurementPackage::RADAR) {
+      /**
+      Convert radar from polar to cartesian coordinates and initialize state.
+      */
+      float ro = meas_package.raw_measurements_[0];
+      float phi = meas_package.raw_measurements_[1];
+      float px = ro * cos(phi);
+      float py = ro * sin(phi);
+      x_ << px, py, 0, 0, 0;
+      cout << " RADAR " << endl;
+    }
+    else if (meas_package.sensor_type_ == MeasurementPackage::LASER) {
+      /**
+      Initialize state.
+      */
+      x_ << meas_package.raw_measurements_[0], meas_package.raw_measurements_[1], 0, 0, 0;
+      cout << " LIDAR " << endl;
+    }
+
+    // done initializing, no need to predict or update
+    is_initialized_ = true;
+    cout << "Initialised" << endl;
+    cout << "x_ = \n" << x_ << endl;
+    cout << "P_ = \n" << P_ << endl;
+    return;
+  }
+  else
+  {
+    // State is initialised, normal processing to occur here
+    double delta_t = meas_package.timestamp_ - time_us_;
+    time_us_ = meas_package.timestamp_;
+    // Prediction
+    Prediction(delta_t);
+    // Update
+    if (meas_package.sensor_type_ == MeasurementPackage::RADAR)
+    {
+      // Do UKF update for non linear Radar measurement
+
+    }
+    else if (meas_package.sensor_type_ == MeasurementPackage::LASER)
+    {
+      // Do normal KF update for linear Laser Measurement?
+
+    }
+  }
 }
 
 /**
