@@ -58,10 +58,10 @@ UKF::UKF() {
   lambda_ = 3 - n_aug_;
 
   ///* predicted sigma points matrix
-  Xsig_pred_ = MatrixXd(n_aug_,n_sig_);
+  Xsig_pred_ = MatrixXd(n_x_,n_sig_);
 
   ///* Weights of sigma points
-  VectorXd weights_ = VectorXd(n_sig_);
+  weights_ = VectorXd(n_sig_);
 
   ///* time when the state is true, in us
   time_us_ = 0.0;
@@ -118,6 +118,10 @@ void UKF::ProcessMeasurement(MeasurementPackage meas_package) {
     time_us_ = meas_package.timestamp_;
     // Prediction
     Prediction(delta_t);
+    cout << "Prediction" << endl;
+    cout << "x_ = \n" << x_ << endl;
+    cout << "P_ = \n" << P_ << endl;
+    return;
     // Update
     if (meas_package.sensor_type_ == MeasurementPackage::RADAR)
     {
@@ -139,11 +143,87 @@ void UKF::ProcessMeasurement(MeasurementPackage meas_package) {
  */
 void UKF::Prediction(double delta_t) {
   /**
-  TODO:
-
-  Complete this function! Estimate the object's location. Modify the state
+  Estimate the object's location. Modify the state
   vector, x_. Predict sigma points, the state, and the state covariance matrix.
   */
+  //create augmented mean vector
+  VectorXd x_aug = VectorXd(n_aug_);
+  x_aug.head(n_x_) = x_;
+  x_aug(n_x_) = 0;
+  x_aug(n_x_+1) = 0;
+
+  //create augmented state covariance
+  MatrixXd P_aug = MatrixXd(n_aug_, n_aug_);
+  P_aug.fill(0.0);
+  P_aug.topLeftCorner(n_x_,n_x_) = P_;
+  P_aug(n_x_,n_x_) = std_a_*std_a_;
+  P_aug(n_x_+1,n_x_+1) = std_yawdd_*std_yawdd_;
+
+  //create sigma point matrix
+  MatrixXd Xsig_aug = MatrixXd(n_aug_, n_sig_);
+
+  //create square root matrix
+  MatrixXd A_aug = P_aug.llt().matrixL();
+  
+  //create augmented sigma points
+  Xsig_aug.col(0) = x_aug;
+  
+  for (int i=0; i<n_aug_; i++)
+  {
+      Xsig_aug.col(i+1) = x_aug + sqrt(lambda_+n_aug_)*A_aug.col(i);
+      Xsig_aug.col(i+n_aug_+1) = x_aug - sqrt(lambda_+n_aug_)*A_aug.col(i);
+  }
+
+  //cout << "Xsig_aug = \n" << Xsig_aug << endl;
+
+  //predict sigma points
+  VectorXd DeltaX = VectorXd(n_x_);
+  VectorXd NoiseX = VectorXd(n_x_);
+  VectorXd x = VectorXd(n_x_);
+  for (int i=0; i<n_sig_; i++)
+  {
+      x = Xsig_aug.col(i).head(n_x_);
+      float noise_a = Xsig_aug.col(i)(5);
+      float noise_b = Xsig_aug.col(i)(6);
+      if (x(4) == 0)
+      {
+        DeltaX << x(2)*cos(x(3))*delta_t, x(2)*sin(x(3))*delta_t, 0, 0, 0;
+      }
+      else
+      {
+        DeltaX << x(2)/x(4)*(sin(x(3)+x(4)*delta_t)-sin(x(3))),
+                  x(2)/x(4)*(-cos(x(3)+x(4)*delta_t)+cos(x(3))),
+                  0, x(4)*delta_t, 0;
+      }
+      NoiseX << .5*delta_t*delta_t*cos(x(3))*noise_a,
+                .5*delta_t*delta_t*sin(x(3))*noise_a,
+                delta_t*noise_a,
+                .5*delta_t*delta_t*noise_b,
+                delta_t*noise_b;
+      Xsig_pred_.col(i) = x + DeltaX + NoiseX;
+  }
+
+  //cout << "Xsig_pred_ = \n" << Xsig_pred_ << endl;
+  
+  // Predicted Mean and Covariance
+  x_.fill(0);
+  //set weights
+  weights_(0) = lambda_/(lambda_+n_aug_);
+  x_ += weights_(0)*Xsig_pred_.col(0);
+  for (int i=1; i<n_sig_; i++)
+  {
+    weights_(i) = 0.5/(lambda_+n_aug_);
+  //predict state mean
+    x_ += weights_(i)*Xsig_pred_.col(i);
+  }
+  x_(3) = atan2(sin(x_(3)),cos(x_(3)));
+  //predict state covariance matrix
+  for (int i=0; i<n_sig_; i++)
+  {
+    VectorXd a = (Xsig_pred_.col(i)-x);
+    a(3) = atan2(sin(a(3)),cos(a(3)));
+    P_ += weights_(i)*a*a.transpose();
+  }
 }
 
 /**
