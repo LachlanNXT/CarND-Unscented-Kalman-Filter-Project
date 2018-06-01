@@ -13,6 +13,7 @@ Things to note:
 * make sure to fill matrices with zeros before doing looping += assignments (got caught out on calculating S from Z_sigma points)!
 * make variable names different enough... x vs x_ not great
 * accuracy does seem to be a little better than EKF, but not much in it...
+* Changing initialisation of P and process noise values has a big effect on RMSE values, but after a some time solutions mostly converge unless initialisation/noise is really bad
 
 Here are examples of running the simulator with this code:
 
