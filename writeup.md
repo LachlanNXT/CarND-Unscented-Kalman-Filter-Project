@@ -1,4 +1,4 @@
-# Extended Kalman Filter Project Writeup
+# Unscented Kalman Filter Project Writeup
 Self-Driving Car Engineer Nanodegree Program
 
 Things to note:
