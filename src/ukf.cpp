@@ -25,9 +25,6 @@ UKF::UKF() {
   // initial covariance matrix
   P_ = MatrixXd(5, 5);
   P_.setIdentity();
-  P_(2,2) = 50.0;
-  P_(3,3) = M_PI;
-  P_(4,4) = M_PI;
 
   // Process noise standard deviation longitudinal acceleration in m/s^2
   // DEFAULT VALUE VERY WRONG
@@ -65,6 +62,12 @@ UKF::UKF() {
 
   ///* Weights of sigma points
   weights_ = VectorXd::Zero(n_sig_);
+  weights_(0) = lambda_/(lambda_+n_aug_);
+  for (int i=1; i<n_sig_; i++)
+  {
+    double weight = 0.5/(lambda_+n_aug_);
+    weights_(i) = weight;
+  }
 
   ///* time when the state is true, in us
   time_us_ = 0.0;
@@ -163,14 +166,15 @@ void UKF::Prediction(double delta_t) {
   vector, x_. Predict sigma points, the state, and the state covariance matrix.
   */
   //create augmented mean vector
-  VectorXd x_aug = VectorXd::Zero(n_aug_);
+  VectorXd x_aug = VectorXd(n_aug_);
+  x_aug.fill(0.0);
   x_aug.head(n_x_) = x_;
   x_aug(n_x_) = 0;
   x_aug(n_x_+1) = 0;
   // cout << "x_aug = \n" << x_aug << endl;
 
   //create augmented state covariance
-  MatrixXd P_aug = MatrixXd::Zero(n_aug_, n_aug_);
+  MatrixXd P_aug = MatrixXd(n_aug_, n_aug_);
   P_aug.fill(0.0);
   P_aug.topLeftCorner(n_x_,n_x_) = P_;
   P_aug(n_x_,n_x_) = std_a_*std_a_;
@@ -178,7 +182,8 @@ void UKF::Prediction(double delta_t) {
   // cout << "P_aug = \n" << P_aug << endl;
 
   //create sigma point matrix
-  MatrixXd Xsig_aug = MatrixXd::Zero(n_aug_, n_sig_);
+  MatrixXd Xsig_aug = MatrixXd(n_aug_, n_sig_);
+  Xsig_aug.fill(0.0);
 
   //create square root matrix
   MatrixXd A_aug = P_aug.llt().matrixL();
@@ -195,44 +200,50 @@ void UKF::Prediction(double delta_t) {
   // cout << "Xsig_aug = \n" << Xsig_aug << endl;
 
   //predict sigma points
-  VectorXd DeltaX = VectorXd::Zero(n_x_);
-  VectorXd NoiseX = VectorXd::Zero(n_x_);
-  VectorXd temp_x = VectorXd::Zero(n_x_);
+  VectorXd DeltaX = VectorXd(n_x_);
+  DeltaX.fill(0.0);
+  VectorXd NoiseX = VectorXd(n_x_);
+  NoiseX.fill(0.0);
+  VectorXd temp_X = VectorXd(n_x_);
+  temp_X.fill(0.0);
   for (int i=0; i<n_sig_; i++)
   {
-      temp_x = Xsig_aug.col(i).head(n_x_);
-      float noise_a = Xsig_aug.col(i)(5);
-      float noise_b = Xsig_aug.col(i)(6);
-      if (temp_x(4) == 0)
-      {
-        DeltaX << temp_x(2)*cos(temp_x(3))*delta_t, temp_x(2)*sin(temp_x(3))*delta_t, 0, 0, 0;
-      }
-      else
-      {
-        DeltaX << temp_x(2)/temp_x(4)*(sin(temp_x(3)+temp_x(4)*delta_t)-sin(temp_x(3))),
-                  temp_x(2)/temp_x(4)*(-cos(temp_x(3)+temp_x(4)*delta_t)+cos(temp_x(3))),
-                  0, temp_x(4)*delta_t, 0;
-      }
-      NoiseX << .5*delta_t*delta_t*cos(temp_x(3))*noise_a,
-                .5*delta_t*delta_t*sin(temp_x(3))*noise_a,
-                delta_t*noise_a,
-                .5*delta_t*delta_t*noise_b,
-                delta_t*noise_b;
-      Xsig_pred_.col(i) = temp_x + DeltaX + NoiseX;
+    const double p_x = Xsig_aug(0,i);
+    const double p_y = Xsig_aug(1,i);
+    const double v = Xsig_aug(2,i);
+    const double yaw = Xsig_aug(3,i);
+    const double yawd = Xsig_aug(4,i);
+    const double nu_a = Xsig_aug(5,i);
+    const double nu_yawdd = Xsig_aug(6,i);
+    if (fabs(yawd) < 0.0001)
+    {
+      DeltaX << v*cos(yaw)*delta_t, v*sin(yaw)*delta_t, 0, 0, 0;
+    }
+    else
+    {
+      DeltaX << v/yawd*(sin(yaw+yawd*delta_t)-sin(yaw)),
+                v/yawd*(-cos(yaw+yawd*delta_t)+cos(yaw)),
+                0, yawd*delta_t, 0;
+    }
+    NoiseX << .5*delta_t*delta_t*cos(yaw)*nu_a,
+              .5*delta_t*delta_t*sin(yaw)*nu_a,
+              delta_t*nu_a,
+              .5*delta_t*delta_t*nu_yawdd,
+              delta_t*nu_yawdd;
+    temp_X << p_x, p_y, v, yaw, yawd;
+    Xsig_pred_.col(i) = temp_X + DeltaX + NoiseX;
   }
 
-  // cout << "Xsig_pred_ = \n" << Xsig_pred_ << endl;
+  cout << "Xsig_pred_ = \n" << Xsig_pred_ << endl;
   
   // Predicted Mean and Covariance
   x_.fill(0.0);
   P_.fill(0.0);
   //set weights
-  weights_(0) = lambda_/(lambda_+n_aug_);
+  
   x_ += weights_(0)*Xsig_pred_.col(0);
   for (int i=1; i<n_sig_; i++)
   {
-    double weight = 0.5/(lambda_+n_aug_);
-    weights_(i) = weight;
   //predict state mean
     // std::cout << "weight\n" << weight << std::endl;
     // std::cout << "Xsig_pred column\n" << Xsig_pred_.col(i) << std::endl;
@@ -246,9 +257,9 @@ void UKF::Prediction(double delta_t) {
   //predict state covariance matrix
   for (int i=0; i<n_sig_; i++)
   {
-    VectorXd a = (Xsig_pred_.col(i)-x_);
-    a(3) = atan2(sin(a(3)),cos(a(3)));
-    P_ += weights_(i)*a*a.transpose();
+    VectorXd x_diff = (Xsig_pred_.col(i)-x_);
+    x_diff(3) = atan2(sin(x_diff(3)),cos(x_diff(3)));
+    P_ += weights_(i)*x_diff*x_diff.transpose();
   }
   // cout << "weights = \n" << weights_ << endl;
 }
@@ -308,12 +319,15 @@ void UKF::UpdateRadar(MeasurementPackage meas_package) {
   //create matrix for sigma points in measurement space
   int n_z = 3;
   MatrixXd Zsig = MatrixXd(n_z, n_sig_);
+  Zsig.fill(0.0);
 
   //mean predicted measurement
   VectorXd z_pred = VectorXd(n_z);
+  z_pred.fill(0.0);
   
   //measurement covariance matrix S
   MatrixXd S = MatrixXd(n_z,n_z);
+  S.fill(0.0);
 
   //transform sigma points into measurement space
   MatrixXd R = MatrixXd(n_z,n_z);
@@ -341,7 +355,6 @@ void UKF::UpdateRadar(MeasurementPackage meas_package) {
       z_pred += weights_(i)*Zsig.col(i);
       
   }
-  S.fill(0.0);
   for (int i=0; i<n_sig_; i++)
   {
       //angle normalization
@@ -366,11 +379,14 @@ void UKF::UpdateRadar(MeasurementPackage meas_package) {
 
   //create matrix for cross correlation Tc
   MatrixXd Tc = MatrixXd(n_x_, n_z);
+  Tc.fill(0.0);
 
   //calculate cross correlation matrix
   VectorXd z_diff = VectorXd(n_z);
+  z_diff.fill(0.0);
   VectorXd x_diff = VectorXd(n_x_);
-  Tc.fill(0.0);
+  x_diff.fill(0.0);
+
   for (int i=0; i<n_sig_; i++)
   {
       x_diff = Xsig_pred_.col(i) - x_;
